@@ -1,0 +1,21 @@
+# --- Core agent stack ---
+langgraph==0.2.62
+langchain==0.3.14
+langchain-core==0.3.29
+langchain-groq==0.2.3          # FREE LLM provider (Groq)
+
+# --- API ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Models / config ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+
+# --- Compliance PDF export (Bonus 9) ---
+reportlab==4.2.5
+
+# --- Tests ---
+pytest==8.3.4
+httpx==0.28.1                  # FastAPI TestClient dependency

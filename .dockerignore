@@ -1,0 +1,19 @@
+# Python
+**/__pycache__/
+**/*.pyc
+backend/.venv/
+backend/*.db
+backend/data/tickets.db
+backend/notifications.log
+
+# Secrets — never bake into the image
+backend/.env
+
+# Node / frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
+# Misc
+.git/
+.gitignore
+**/.DS_Store

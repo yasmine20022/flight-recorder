@@ -1,0 +1,22 @@
+[
+  { "name": "Alice Martin",   "email": "alice.martin@corp.example",   "team": "Network",               "role": "Network Lead",          "location": "Paris HQ",     "on_call": true },
+  { "name": "Ines Laurent",   "email": "ines.laurent@corp.example",   "team": "Network",               "role": "Network Engineer",      "location": "Paris HQ",     "on_call": false },
+  { "name": "Bob Chen",       "email": "bob.chen@corp.example",       "team": "Identity & Access",     "role": "IAM Lead",              "location": "London",       "on_call": true },
+  { "name": "Jamal Brooks",   "email": "jamal.brooks@corp.example",   "team": "Identity & Access",     "role": "IAM Analyst",           "location": "London",       "on_call": false },
+  { "name": "Carla Diaz",     "email": "carla.diaz@corp.example",     "team": "Hardware",              "role": "Field Tech Lead",       "location": "Madrid",       "on_call": true },
+  { "name": "Keiko Tan",      "email": "keiko.tan@corp.example",      "team": "Hardware",              "role": "Hardware Technician",   "location": "Singapore",    "on_call": false },
+  { "name": "David Okoro",    "email": "david.okoro@corp.example",    "team": "Software",              "role": "App Packaging Lead",    "location": "Berlin",       "on_call": true },
+  { "name": "Liam O'Brien",   "email": "liam.obrien@corp.example",    "team": "Software",              "role": "Software Engineer",     "location": "Dublin",       "on_call": false },
+  { "name": "Elena Rossi",    "email": "elena.rossi@corp.example",    "team": "Database",              "role": "DBA Lead",              "location": "Milan",        "on_call": true },
+  { "name": "Maria Gomez",    "email": "maria.gomez@corp.example",    "team": "Database",              "role": "Database Engineer",     "location": "Madrid",       "on_call": false },
+  { "name": "Farid Haddad",   "email": "farid.haddad@corp.example",   "team": "Email & Collaboration", "role": "Messaging Admin",       "location": "Paris HQ",     "on_call": true },
+  { "name": "Noah Weiss",     "email": "noah.weiss@corp.example",     "team": "Email & Collaboration", "role": "Collaboration Engineer","location": "Berlin",       "on_call": false },
+  { "name": "Grace Kim",      "email": "grace.kim@corp.example",      "team": "Security",              "role": "Security Analyst",      "location": "Remote",       "on_call": true },
+  { "name": "Omar Said",      "email": "omar.said@corp.example",      "team": "Security",              "role": "Security Engineer",     "location": "Dubai",        "on_call": false },
+  { "name": "Priya Nair",     "email": "priya.nair@corp.example",     "team": "Cloud",                 "role": "Cloud Lead",            "location": "Bangalore",    "on_call": true },
+  { "name": "Quentin Roy",    "email": "quentin.roy@corp.example",    "team": "Cloud",                 "role": "Cloud Engineer",        "location": "Paris HQ",     "on_call": false },
+  { "name": "Rosa Bianchi",   "email": "rosa.bianchi@corp.example",   "team": "Telephony",             "role": "Telephony Lead",        "location": "Rome",         "on_call": true },
+  { "name": "Sven Larsson",   "email": "sven.larsson@corp.example",   "team": "Facilities",            "role": "Facilities Coordinator","location": "Stockholm",    "on_call": false },
+  { "name": "Henry Ford",     "email": "henry.ford@corp.example",     "team": "Helpdesk",              "role": "Tier-1 Dispatcher",     "location": "Remote",       "on_call": true },
+  { "name": "Tara Singh",     "email": "tara.singh@corp.example",     "team": "Helpdesk",              "role": "Tier-2 Specialist",     "location": "Remote",       "on_call": false }
+]

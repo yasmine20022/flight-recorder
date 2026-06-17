@@ -1,0 +1,31 @@
+# Flight Recorder — containers.
+#
+#   docker compose up api                       → run the API (needs GROQ_API_KEY for live runs)
+#   docker compose --profile sandbox run replay-sandbox
+#                                               → run a REPLAY inside a network-isolated,
+#                                                 read-only container. It has NO network at all,
+#                                                 proving replay needs zero external calls and
+#                                                 cannot trigger a real side effect.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.1-8b-instant}
+      SIGNING_SECRET: ${SIGNING_SECRET:-dev-flight-recorder-secret-change-me}
+
+  # Hardened, isolated container that only ever replays recorded traces.
+  replay-sandbox:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    profiles: ["sandbox"]
+    network_mode: "none"        # ← no network: cannot reach the LLM or any external system
+    read_only: true             # ← immutable filesystem
+    tmpfs:
+      - /tmp
+    command: ["python", "-m", "scripts.replay_demo"]
