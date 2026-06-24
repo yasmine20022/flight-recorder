@@ -11,8 +11,35 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from flight_recorder.core.recorder import TraceRecorder
-from flight_recorder.core.schemas import Session, SessionMode, SessionStatus
+from flight_recorder.core.schemas import Session, SessionMode, SessionStatus, StepType
 from flight_recorder.core.storage import Storage, storage as default_storage
+
+
+def _write_jira_labels(issue_key: str, steps) -> None:
+    """After a run, tag the real Jira issue with the routed team + priority (best-effort)."""
+    from flight_recorder.config import settings
+
+    if not settings.jira_enabled:
+        return
+    from flight_recorder.agent import jira_client
+    from flight_recorder.core.ai_common import parse_decision
+
+    team = None
+    for s in steps:
+        if s.type == StepType.TOOL_CALL and s.tool_name == "get_user_info":
+            team = (s.input or {}).get("team_name") or team
+    decision = next((s.response for s in reversed(steps)
+                     if s.type == StepType.LLM_CALL and "decision" in (s.response or "").lower()), "")
+    labels = ["ai-triaged"]
+    if team:
+        labels.append(jira_client.label_for(team))
+    prio = parse_decision(decision).get("priority")
+    if prio:
+        labels.append(prio)
+    try:
+        jira_client.add_labels(issue_key, labels)
+    except jira_client.JiraError:
+        pass
 
 
 def new_session_id() -> str:
@@ -71,5 +98,6 @@ def record_ticket(
         agent_tools.reset_current_issue(token)
 
     session.steps = recorder.steps
+    _write_jira_labels(ticket_id, recorder.steps)  # real labels written to Jira per run
     store.save_session(session)
     return session

@@ -278,6 +278,16 @@ def create_issue(summary: str, *, labels: Optional[list[str]] = None) -> str:
     return _post("/rest/api/3/issue", {"fields": fields})["key"]
 
 
+def add_labels(issue_key: str, labels: list[str]) -> dict[str, Any]:
+    """Add labels to a real Jira issue (a genuine write performed after each run)."""
+    clean = [re.sub(r"\s+", "_", str(l).strip()) for l in labels if l]
+    if not clean:
+        return {}
+    _request("PUT", f"/rest/api/3/issue/{issue_key}",
+             json={"update": {"labels": [{"add": l} for l in clean]}})
+    return {"issue": issue_key, "labels": clean}
+
+
 def comment_issue(issue_key: str, message: str) -> dict[str, Any]:
     """Post a real comment on a Jira issue — the genuine side effect REPLAY blocks."""
     body = {

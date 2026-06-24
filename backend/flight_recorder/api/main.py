@@ -218,11 +218,12 @@ def whatif(session_id: str, req: WhatIfRequest) -> WhatIfResponse:
             req.tool_name,
             req.new_output,
             system_prompt=req.system_prompt,
+            ticket_text=req.ticket_text,
             store=storage,
         )
     except KeyError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown session: {session_id}")
-    except ValueError as exc:  # neither a tool nor a prompt override was provided
+    except ValueError as exc:  # no override of any kind was provided
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     except groq.RateLimitError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"LLM rate limit: {exc}")
@@ -234,3 +235,74 @@ def whatif(session_id: str, req: WhatIfRequest) -> WhatIfResponse:
         overridden_tool=result.overridden_tool,
         override_kind=result.override_kind,
     )
+
+
+# --- AI analysis layer (LLM-judge · auto-fix · multi-run patterns) ---
+
+
+@app.get("/api/sessions/{session_id}/judge")
+def judge(session_id: str):
+    """LLM-as-Judge: score this run's decision quality (no ground truth)."""
+    from flight_recorder.core.ai_common import AIUnavailable
+    from flight_recorder.core.judge import judge_session
+
+    session = _require_session(session_id)
+    try:
+        return judge_session(session)
+    except AIUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+
+
+@app.post("/api/sessions/{session_id}/autofix")
+def autofix(session_id: str):
+    """Closed loop: diagnose → generate corrected prompt → re-run → judge before/after."""
+    import groq
+
+    from flight_recorder.core.ai_common import AIUnavailable
+    from flight_recorder.core.autofix import auto_fix
+
+    try:
+        return auto_fix(session_id, store=storage)
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown session: {session_id}")
+    except groq.RateLimitError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"LLM rate limit: {exc}")
+    except (AIUnavailable, RuntimeError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+
+
+@app.get("/api/patterns")
+def patterns():
+    """Aggregate insight across every recorded run + LLM structural-weakness summary."""
+    from flight_recorder.core.patterns import analyze_patterns
+
+    return analyze_patterns(store=storage)
+
+
+@app.get("/api/metrics")
+def metrics(refresh: bool = False):
+    """The 6-metric evaluation dashboard (M1–M6). Always returns six cards (graceful fallbacks)."""
+    from flight_recorder.core.metrics import compute_metrics
+
+    return compute_metrics(store=storage, refresh=refresh)
+
+
+@app.get("/api/sessions/{session_id}/rca")
+def rca(session_id: str):
+    """ANALYZE mode: auto-load the root cause + the exact faulty prompt sentence (1 LLM call)."""
+    from flight_recorder.core.ai_common import AIUnavailable
+    from flight_recorder.core.rca import diagnose
+
+    session = _require_session(session_id)
+    try:
+        return diagnose(session)
+    except AIUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+
+
+@app.get("/api/diff")
+def diff(limit: int = 2, refresh: bool = False):
+    """Original-vs-corrected decision diff across the most-flawed runs (FIXED badges)."""
+    from flight_recorder.core.diff import build_diff
+
+    return build_diff(store=storage, limit=max(1, min(limit, 6)), refresh=refresh)

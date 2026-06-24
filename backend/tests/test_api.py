@@ -91,7 +91,7 @@ def test_whatif_endpoint_returns_both_trajectories(client: TestClient, monkeypat
     from flight_recorder.core.schemas import Session, Step, StepType
     from flight_recorder.core.whatif import WhatIfResult
 
-    def fake_run_whatif(session_id, tool_name=None, new_output=None, *, system_prompt=None, store):
+    def fake_run_whatif(session_id, tool_name=None, new_output=None, *, system_prompt=None, ticket_text=None, store):
         original = store.get_session(session_id)
         whatif = Session(
             session_id=f"{session_id}__whatif_abcd",
@@ -131,7 +131,7 @@ def test_whatif_prompt_override_passes_system_prompt(client: TestClient, monkeyp
 
     seen = {}
 
-    def fake_run_whatif(session_id, tool_name=None, new_output=None, *, system_prompt=None, store):
+    def fake_run_whatif(session_id, tool_name=None, new_output=None, *, system_prompt=None, ticket_text=None, store):
         seen["system_prompt"] = system_prompt
         original = store.get_session(session_id)
         whatif = Session(

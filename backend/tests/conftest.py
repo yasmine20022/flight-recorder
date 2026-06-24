@@ -9,13 +9,14 @@ from flight_recorder.core.storage import Storage
 
 
 @pytest.fixture(autouse=True)
-def _disable_jira(monkeypatch):
-    """Force the local mock for every test so none accidentally hit a real Jira."""
+def _isolate_external(monkeypatch):
+    """Force local/offline defaults so no test accidentally hits a real Jira or Mistral."""
     from flight_recorder.config import settings
 
     monkeypatch.setattr(settings, "jira_base_url", "", raising=False)
     monkeypatch.setattr(settings, "jira_email", "", raising=False)
     monkeypatch.setattr(settings, "jira_api_token", "", raising=False)
+    monkeypatch.setattr(settings, "mistral_api_key", "", raising=False)
 
 
 @pytest.fixture()

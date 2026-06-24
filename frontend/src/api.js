@@ -54,8 +54,38 @@ export const live = {
       body: JSON.stringify({ system_prompt }),
     });
   },
+  async whatifTicket(session_id, ticket_text) {
+    // Counterfactual: re-run the agent on a reworded ticket (robustness test).
+    return call(`/sessions/${session_id}/whatif`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket_text }),
+    });
+  },
   async agentPrompt() {
     return call("/agent/prompt");
+  },
+  // --- AI analysis layer ---
+  async judge(session_id) {
+    return call(`/sessions/${session_id}/judge`);
+  },
+  async autofix(session_id) {
+    return call(`/sessions/${session_id}/autofix`, { method: "POST" });
+  },
+  async patterns() {
+    return call("/patterns");
+  },
+  async metrics(refresh) {
+    return call(`/metrics${refresh ? "?refresh=true" : ""}`);
+  },
+  async rca(session_id) {
+    return call(`/sessions/${session_id}/rca`);
+  },
+  async diff(limit, refresh) {
+    const q = [];
+    if (limit) q.push(`limit=${limit}`);
+    if (refresh) q.push("refresh=true");
+    return call(`/diff${q.length ? `?${q.join("&")}` : ""}`);
   },
   async anomalies(session_id) {
     return call(`/sessions/${session_id}/anomalies`);

@@ -38,14 +38,16 @@ def run_whatif(
     new_output: Optional[dict[str, Any]] = None,
     *,
     system_prompt: Optional[str] = None,
+    ticket_text: Optional[str] = None,
     store: Optional[Storage] = None,
     agent: Any = None,
 ) -> WhatIfResult:
     """Re-run the agent for ``session_id`` with one correction injected, then compare.
 
     Provide exactly one correction:
-      * ``tool_name`` + ``new_output`` — pin that tool's output and re-run, or
-      * ``system_prompt`` — re-run the agent with corrected instructions (prompt injection).
+      * ``tool_name`` + ``new_output`` — pin that tool's output and re-run,
+      * ``system_prompt`` — re-run with corrected instructions (prompt injection), or
+      * ``ticket_text`` — re-run on a *reworded* ticket (counterfactual robustness test).
     """
     from langchain_core.messages import HumanMessage
 
@@ -54,36 +56,48 @@ def run_whatif(
     if original is None:
         raise KeyError(session_id)
 
-    override_kind = "system_prompt" if system_prompt else "tool"
+    if system_prompt:
+        override_kind = "system_prompt"
+    elif ticket_text:
+        override_kind = "ticket"
+    else:
+        override_kind = "tool"
 
     if agent is None:
         from flight_recorder.agent.graph import build_agent
 
         if override_kind == "system_prompt":
             agent = build_agent(system_prompt=system_prompt)
+        elif override_kind == "ticket":
+            agent = build_agent()  # same agent, different input wording
         else:
             if not tool_name:
                 raise ValueError(
-                    "Provide either tool_name + new_output, or system_prompt, to diverge."
+                    "Provide a tool_name + new_output, a system_prompt, or a ticket_text."
                 )
             tools = apply_overrides(ALL_TOOLS, {tool_name: new_output or {}})
             agent = build_agent(tools)
 
+    run_text = ticket_text if override_kind == "ticket" else original.ticket_text
     recorder = TraceRecorder()
     agent.invoke(
-        {"messages": [HumanMessage(content=f"Ticket {original.ticket_id}:\n{original.ticket_text}")]},
+        {"messages": [HumanMessage(content=f"Ticket {original.ticket_id}:\n{run_text}")]},
         config={"callbacks": [recorder]},
     )
 
     whatif_session = Session(
         session_id=f"{session_id}__whatif_{uuid4().hex[:4]}",
         ticket_id=original.ticket_id,
-        ticket_text=original.ticket_text,
+        ticket_text=run_text,
         status=SessionStatus.COMPLETED,
         mode=SessionMode.WHATIF,
         steps=recorder.steps,
     )
-    label = tool_name if override_kind == "tool" else "system prompt (instructions)"
+    label = {
+        "tool": tool_name,
+        "system_prompt": "system prompt (instructions)",
+        "ticket": "ticket rephrasing",
+    }[override_kind]
     return WhatIfResult(
         original=original,
         whatif=whatif_session,

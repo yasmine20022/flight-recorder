@@ -116,6 +116,24 @@ def test_run_whatif_requires_some_override(tmp_storage: Storage):
     import pytest
 
     _original(tmp_storage)
-    # No tool override and no prompt override → can't diverge.
+    # No tool, prompt, or ticket override → can't diverge.
     with pytest.raises(ValueError):
         run_whatif("run_1", store=tmp_storage)
+
+
+# --- counterfactual ticket rephrasing (Feature 5) ---
+
+def test_run_whatif_ticket_counterfactual(tmp_storage: Storage):
+    _original(tmp_storage)
+
+    result = run_whatif(
+        "run_1",
+        ticket_text="Backend API returns HTTP 500 on /api/payments",
+        store=tmp_storage,
+        agent=DivergingAgent(),
+    )
+
+    assert result.override_kind == "ticket"
+    assert "ticket" in result.overridden_tool.lower()
+    # The counterfactual run is recorded against the reworded ticket text.
+    assert result.whatif.ticket_text == "Backend API returns HTTP 500 on /api/payments"

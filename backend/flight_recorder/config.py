@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # transient 429s with exponential backoff (it honours the Retry-After header) so a
     # short burst over the limit self-heals instead of failing the whole run.
     groq_max_retries: int = 6
+    # A stronger model used for AI analysis (auto-fix RCA, pattern insights) on Groq.
+    groq_judge_model: str = "llama-3.3-70b-versatile"
+    # Optional INDEPENDENT judge from a different provider (Mistral). When the key is set, the
+    # LLM-as-Judge uses Mistral instead of Groq — a genuinely independent reviewer of the agent.
+    mistral_api_key: str = ""
+    mistral_model: str = "mistral-small-latest"
 
     # --- Storage ---
     database_path: str = "flight_recorder.db"

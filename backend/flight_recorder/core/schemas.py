@@ -116,6 +116,7 @@ class WhatIfRequest(BaseModel):
     tool_name: Optional[str] = None
     new_output: Optional[dict[str, Any]] = None
     system_prompt: Optional[str] = None
+    ticket_text: Optional[str] = None  # counterfactual: re-run on a reworded ticket
 
 
 class WhatIfResponse(BaseModel):
@@ -125,6 +126,93 @@ class WhatIfResponse(BaseModel):
     whatif: Session
     overridden_tool: str          # human label of what was overridden
     override_kind: str = "tool"   # "tool" | "system_prompt"
+
+
+class Judgment(BaseModel):
+    """LLM-as-Judge verdict on a decision's quality — no ground truth needed (feature 4)."""
+
+    score: int = Field(..., ge=0, le=10)
+    verdict: str            # sound | questionable | flawed
+    rationale: str
+    issues: list[str] = Field(default_factory=list)
+    model: str = ""
+
+
+class AutoFixResult(BaseModel):
+    """Closed-loop auto-correction result (feature 1)."""
+
+    root_cause: str
+    corrected_prompt: str
+    rca_confidence: int = 0  # 0–100, how sure the model is of the diagnosis (feeds M6)
+    original: "Session"
+    fixed: "Session"
+    original_decision: str
+    fixed_decision: str
+    original_judgment: Judgment
+    fixed_judgment: Judgment
+    improved: bool
+
+
+class RcaResult(BaseModel):
+    """Lightweight root-cause analysis of one run (auto-loaded in ANALYZE mode)."""
+
+    root_cause: str
+    faulty_quote: str = ""   # the exact faulty sentence quoted from the agent's prompt
+    confidence: int = 0      # 0–100
+    fix_summary: str = ""
+    model: str = ""
+
+
+class DiffRow(BaseModel):
+    """One ticket in the original-vs-corrected diff table."""
+
+    ticket_id: str
+    session_id: str
+    original_decision: str
+    fixed_decision: str
+    original_score: int = 0
+    fixed_score: int = 0
+    fixed: bool = False
+
+
+class DiffReport(BaseModel):
+    rows: list[DiffRow] = Field(default_factory=list)
+    fixed_count: int = 0
+
+
+class MetricCard(BaseModel):
+    """One dashboard metric (M1–M6)."""
+
+    id: str            # "M1" … "M6"
+    name: str
+    value: float       # numeric (usually 0–100)
+    display: str       # human display, e.g. "62%" or "8.1/10"
+    detail: str        # the real measured value in words
+    protocol: str      # how it is measured
+    ai: bool = False   # True when an LLM is in the measurement loop
+
+
+class MetricsReport(BaseModel):
+    """The 6-metric evaluation dashboard (M1–M6)."""
+
+    generated_at: str
+    total_runs: int
+    metrics: list[MetricCard] = Field(default_factory=list)
+
+
+class PatternReport(BaseModel):
+    """Aggregate insight across many runs (feature 2)."""
+
+    total_runs: int = 0
+    by_team: dict[str, int] = Field(default_factory=dict)
+    by_priority: dict[str, int] = Field(default_factory=dict)
+    anomaly_counts: dict[str, int] = Field(default_factory=dict)
+    model_usage: dict[str, int] = Field(default_factory=dict)
+    avg_steps: float = 0.0
+    flagged_runs: int = 0
+    summary: str = ""
+    weaknesses: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
 
 
 class Anomaly(BaseModel):

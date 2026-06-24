@@ -50,6 +50,8 @@ export default function WhatIfCompare({ result, onBack }) {
   const headLabel =
     override_kind === "system_prompt"
       ? "injected corrected prompt"
+      : override_kind === "ticket"
+      ? "reworded the ticket"
       : `overrode ${overridden_tool}`;
 
   return (

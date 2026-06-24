@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { live, checkOnline } from "./api.js";
 import SessionList from "./components/SessionList.jsx";
 import FlightPath from "./components/FlightPath.jsx";
+import GraphView from "./components/GraphView.jsx";
 import StepDetail from "./components/StepDetail.jsx";
 import NewRun from "./components/NewRun.jsx";
 import InstrumentBar from "./components/InstrumentBar.jsx";
@@ -10,6 +11,11 @@ import WhatIfEditor from "./components/WhatIfEditor.jsx";
 import WhatIfPromptEditor from "./components/WhatIfPromptEditor.jsx";
 import WhatIfCompare from "./components/WhatIfCompare.jsx";
 import AuditBar from "./components/AuditBar.jsx";
+import AiPanel from "./components/AiPanel.jsx";
+import InsightsView from "./components/InsightsView.jsx";
+import MetricsView from "./components/MetricsView.jsx";
+import AnalyzeView from "./components/AnalyzeView.jsx";
+import DiffView from "./components/DiffView.jsx";
 
 const PLAYBACK_INTERVAL_MS = 850;
 
@@ -26,6 +32,13 @@ export default function App() {
   const [agentPrompts, setAgentPrompts] = useState(null);
   const [audit, setAudit] = useState({ signature: null, anomalies: null });
   const [error, setError] = useState(null);
+  const [view, setView] = useState("timeline"); // "timeline" | "graph"
+  const [insights, setInsights] = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [metrics, setMetrics] = useState(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [diff, setDiff] = useState(null);
+  const [diffLoading, setDiffLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("fr-theme") || "light");
 
   const steps = activeSession?.steps ?? [];
@@ -145,6 +158,56 @@ export default function App() {
     }
   }
 
+  async function handleCounterfactual(ticketText) {
+    if (!activeSession) return;
+    setWhatifRunning(true);
+    setError(null);
+    try {
+      const result = await live.whatifTicket(activeSession.session_id, ticketText);
+      setWhatifResult(result);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setWhatifRunning(false);
+    }
+  }
+
+  async function openInsights() {
+    setInsightsLoading(true);
+    setError(null);
+    try {
+      setInsights(await live.patterns());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setInsightsLoading(false);
+    }
+  }
+
+  async function openMetrics(refresh = false) {
+    setMetricsLoading(true);
+    setError(null);
+    try {
+      setMetrics(await live.metrics(refresh));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setMetricsLoading(false);
+    }
+  }
+
+  async function openDiff(refresh = false) {
+    setDiffLoading(true);
+    setError(null);
+    try {
+      setDiff(await live.diff(2, refresh));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDiffLoading(false);
+    }
+  }
+
   const startPlay = () => {
     if (cursor >= steps.length - 1) setCursor(0);
     setPlaying(true);
@@ -204,6 +267,22 @@ export default function App() {
 
       {online && (whatifResult ? (
         <WhatIfCompare result={whatifResult} onBack={() => setWhatifResult(null)} />
+      ) : metrics ? (
+        <MetricsView
+          report={metrics}
+          onBack={() => setMetrics(null)}
+          onRefresh={() => openMetrics(true)}
+          refreshing={metricsLoading}
+        />
+      ) : diff ? (
+        <DiffView
+          report={diff}
+          onBack={() => setDiff(null)}
+          onRefresh={() => openDiff(true)}
+          refreshing={diffLoading}
+        />
+      ) : insights ? (
+        <InsightsView report={insights} onBack={() => setInsights(null)} />
       ) : (
         <div className="layout">
           <aside className="panel">
@@ -215,10 +294,29 @@ export default function App() {
               activeId={activeSession?.session_id}
               onSelect={openSession}
             />
+            <hr className="sep" />
+            <button className="btn btn--metrics" onClick={() => openMetrics(false)} disabled={metricsLoading}>
+              {metricsLoading ? "Computing M1–M6…" : "📈 Metrics (M1–M6)"}
+            </button>
+            <button className="btn btn--ai" onClick={openInsights} disabled={insightsLoading}>
+              {insightsLoading ? "Analysing all runs…" : "📊 Insights (all runs)"}
+            </button>
+            <button className="btn btn--autofix" onClick={() => openDiff(false)} disabled={diffLoading}>
+              {diffLoading ? "Auto-fixing & diffing…" : "⇄ Diff (FIXED badges)"}
+            </button>
           </aside>
 
           <main className="panel">
-            <h2 className="panel__title">Flight Data Recorder</h2>
+            <div className="panel__head">
+              <h2 className="panel__title">Flight Data Recorder</h2>
+              {activeSession && (
+                <div className="viewtoggle">
+                  <button className={view === "timeline" ? "is-on" : ""} onClick={() => setView("timeline")}>≣ Timeline</button>
+                  <button className={view === "graph" ? "is-on" : ""} onClick={() => setView("graph")}>⌗ Graph</button>
+                  <button className={view === "analyze" ? "is-on" : ""} onClick={() => setView("analyze")}>◆ Analyze</button>
+                </div>
+              )}
+            </div>
             {activeSession ? (
               <>
                 <InstrumentBar session={activeSession} replay={replayResult} />
@@ -241,15 +339,29 @@ export default function App() {
                   canReplay={canReplay}
                   replaying={replaying}
                 />
-                <FlightPath
-                  session={activeSession}
-                  cursor={cursor}
-                  anomalySteps={new Set((audit.anomalies || []).map((a) => a.step_number).filter(Boolean))}
-                  onSelect={(i) => {
-                    setPlaying(false);
-                    setCursor(i);
-                  }}
-                />
+                {view === "analyze" ? (
+                  <AnalyzeView session={activeSession} />
+                ) : view === "graph" ? (
+                  <GraphView
+                    session={activeSession}
+                    cursor={cursor}
+                    anomalySteps={new Set((audit.anomalies || []).map((a) => a.step_number).filter(Boolean))}
+                    onSelect={(i) => {
+                      setPlaying(false);
+                      setCursor(i);
+                    }}
+                  />
+                ) : (
+                  <FlightPath
+                    session={activeSession}
+                    cursor={cursor}
+                    anomalySteps={new Set((audit.anomalies || []).map((a) => a.step_number).filter(Boolean))}
+                    onSelect={(i) => {
+                      setPlaying(false);
+                      setCursor(i);
+                    }}
+                  />
+                )}
               </>
             ) : (
               <p className="muted small">
@@ -274,6 +386,16 @@ export default function App() {
                   prompts={agentPrompts}
                   onRun={handleWhatIfPrompt}
                   running={whatifRunning}
+                />
+              </>
+            )}
+            {isRecordedRun && (
+              <>
+                <hr className="sep" />
+                <AiPanel
+                  session={activeSession}
+                  onCounterfactual={handleCounterfactual}
+                  busy={whatifRunning}
                 />
               </>
             )}
