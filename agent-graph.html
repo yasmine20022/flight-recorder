@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Execution Graph · Midnight Azure</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --canvas: #060D18;
+    --toolbar: #0A1828;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  body {
+    font-family: var(--mono);
+    background: var(--canvas);
+    color: #B0CCEE;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ── Toolbar ───────────────────────────────────────────── */
+  .toolbar {
+    height: 38px; min-height: 38px;
+    background: var(--toolbar); border-bottom: 1px solid #1A3050;
+    display: flex; align-items: center; gap: 8px; padding: 0 12px; z-index: 30;
+  }
+  .tb-title {
+    font: 700 12px var(--mono); letter-spacing: 1.5px; color: #B0CCEE;
+    margin-right: auto; display: flex; align-items: center; gap: 8px;
+  }
+  .tb-title .dot { width: 7px; height: 7px; border-radius: 50%; background: #00BFFF;
+    box-shadow: 0 0 10px #00BFFFaa; animation: blink 1.4s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .tb-btn {
+    background: #0F2040; color: #7AACD0; border: 1px solid #1E3D65; border-radius: 5px;
+    padding: 5px 11px; font: 600 11px var(--mono); cursor: pointer; transition: all .15s ease;
+  }
+  .tb-btn:hover { background: #1A3560; color: #C0DCFF; }
+
+  /* ── Stage / canvas ────────────────────────────────────── */
+  .stage { position: relative; flex: 1; overflow: hidden; }
+  .canvas {
+    position: absolute; inset: 0; overflow: auto;
+    background-color: var(--canvas);
+    background-image: radial-gradient(rgba(77,159,255,.12) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  .canvas__inner { position: relative; width: 680px; height: 1080px; margin: 0 auto;
+    transform-origin: top center; transition: transform .2s ease; }
+  .edges { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 1; }
+  .edge { animation: flow .9s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -22; } }
+
+  /* ── Nodes ─────────────────────────────────────────────── */
+  .node {
+    position: absolute; width: 56px; height: 56px; border-radius: 50%;
+    background: #0A1828; border: 2px solid var(--c);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer; z-index: 3; color: #cfe6ff;
+    box-shadow: 0 0 20px var(--c66), 0 0 8px var(--c44);
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .node:hover { transform: scale(1.12); box-shadow: 0 0 34px var(--cbb), 0 0 14px var(--c77); z-index: 6; }
+  .node.is-selected { box-shadow: 0 0 34px var(--cbb), 0 0 14px var(--c77); }
+  .node__icon { font-size: 18px; line-height: 1; }
+  .node__step { font: 400 8px var(--mono); margin-top: 2px; color: #7fb0d8; letter-spacing: .5px; }
+  .node--blocked { border-style: dashed; }
+  .node--final { border-width: 3px; box-shadow: 0 0 24px var(--c77), 0 0 48px var(--c44), 0 0 10px var(--c); }
+  .node--final::before, .node--final::after {
+    content: ""; position: absolute; inset: -6px; border-radius: 50%;
+    border: 1.5px solid var(--c77); animation: ring 2.4s ease-out infinite;
+  }
+  .node--final::after { animation-delay: 1.2s; }
+  @keyframes ring { 0% { transform: scale(.9); opacity: .85; } 100% { transform: scale(1.55); opacity: 0; } }
+  .node.is-pulse { animation: pulse .6s ease; }
+  @keyframes pulse { 50% { transform: scale(1.28); box-shadow: 0 0 42px var(--cbb), 0 0 16px var(--c77); } }
+
+  /* ── Cards ─────────────────────────────────────────────── */
+  .card {
+    position: absolute; width: 180px; padding: 8px 10px; z-index: 2; cursor: pointer;
+    background: rgba(6,15,30,.88); border: 1px solid #1A3456; border-radius: 8px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .card:hover { border-color: #2A4E78; }
+  .card__title { font: 700 12px var(--mono); color: #B0CCEE; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card__body {
+    font-size: 10.5px; color: #3D6080; margin-top: 3px; line-height: 1.38;
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .card.is-open .card__body { -webkit-line-clamp: unset; line-clamp: unset; }
+  .card__tags { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .tag { font: 700 9px var(--mono); padding: 2px 7px; border-radius: 999px; letter-spacing: .5px; }
+  .tag--blue    { background: #00BFFF18; color: #5BC8F5; }
+  .tag--indigo  { background: #818CF818; color: #A5B4FC; }
+  .tag--amber   { background: #F59E0B18; color: #FCD34D; }
+  .tag--emerald { background: #34D39918; color: #6EE7B7; }
+  .tag--red     { background: #F8717118; color: #FCA5A5; }
+  .tag--rose    { background: #F43F5E18; color: #FDA4AF; }
+
+  /* ── Inspector sidebar ─────────────────────────────────── */
+  .inspector {
+    position: absolute; top: 0; left: 0; width: 360px; height: 100%; z-index: 20;
+    background: rgba(6,14,28,.97); border-right: 1px solid #1A3456;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    transform: translateX(-100%); transition: transform .3s cubic-bezier(.4,0,.2,1);
+    display: flex; flex-direction: column;
+  }
+  .inspector.is-open { transform: translateX(0); }
+  .insp-header {
+    background: #0C1C38; padding: 13px 16px; display: flex; align-items: center; gap: 11px;
+    border-bottom: 1px solid #1A3456;
+  }
+  .insp-emoji {
+    width: 38px; height: 38px; min-width: 38px; border-radius: 50%; background: #0A1828;
+    border: 2px solid var(--c); display: grid; place-items: center; font-size: 17px;
+    box-shadow: 0 0 16px var(--c66);
+  }
+  .insp-h-text { min-width: 0; }
+  .insp-title { font: 700 13px var(--mono); color: #DDEBFB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .insp-sub { font: 600 9.5px var(--mono); color: var(--c); letter-spacing: 1px; margin-top: 2px; text-transform: uppercase; }
+  .insp-close {
+    margin-left: auto; width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
+    background: #0F2040; border: 1px solid #1E3D65; color: #7AACD0; font-size: 15px;
+    display: grid; place-items: center; transition: all .15s ease;
+  }
+  .insp-close:hover { background: #1A3560; color: #C0DCFF; }
+  .insp-body { overflow-y: auto; padding: 6px 16px 22px; }
+  .insp-label { font: 600 9px var(--mono); letter-spacing: 1.6px; color: #2A4E70; text-transform: uppercase; margin: 16px 0 0; }
+  .insp-rule { height: 1px; background: #112030; margin: 5px 0 9px; }
+  .kv { display: flex; justify-content: space-between; font: 600 11px var(--mono); color: #6E97BE; }
+  .kv b { color: #9CC3E6; }
+  .code {
+    background: #040A14; border: 1px solid #0E2040; color: #4D7898;
+    font: 400 11px var(--mono); padding: 9px 11px; border-radius: 6px;
+    white-space: pre-wrap; word-break: break-word; line-height: 1.5; margin: 0;
+  }
+  .patch {
+    width: 100%; background: #060E1C; border: 1px solid #112030; color: #9CC0E0;
+    font: 400 11px var(--mono); padding: 9px 11px; border-radius: 6px; resize: vertical;
+    min-height: 74px; line-height: 1.5; transition: border-color .15s, box-shadow .15s;
+  }
+  .patch:focus { outline: none; border-color: #00BFFF; box-shadow: 0 0 0 3px rgba(0,191,255,.60); }
+  .apply-btn {
+    margin-top: 10px; width: 100%; padding: 9px; border: none; border-radius: 6px; cursor: pointer;
+    background: linear-gradient(180deg, #F8B14B, #C57F12); color: #1c1303;
+    font: 700 12px var(--mono); letter-spacing: .5px; transition: box-shadow .18s ease, transform .12s ease;
+  }
+  .apply-btn:hover { box-shadow: 0 0 20px rgba(245,158,11,.65); }
+  .apply-btn:active { transform: translateY(1px); }
+  .apply-btn.flash { background: linear-gradient(180deg, #34D399, #129a6c); color: #04140d; }
+
+  /* tiny legend chip row */
+  .legend { display: flex; gap: 12px; align-items: center; margin-right: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; font: 600 9px var(--mono); color: #4E7296; letter-spacing: .5px; }
+  .legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  @media (max-width: 720px) { .legend { display: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="tb-title"><span class="dot"></span> AGENT EXECUTION GRAPH</div>
+    <div class="legend">
+      <span><i style="background:#00BFFF;box-shadow:0 0 6px #00BFFF"></i>LLM</span>
+      <span><i style="background:#F59E0B;box-shadow:0 0 6px #F59E0B"></i>TOOL</span>
+      <span><i style="background:#34D399;box-shadow:0 0 6px #34D399"></i>OK</span>
+      <span><i style="background:#F43F5E;box-shadow:0 0 6px #F43F5E"></i>BLOCKED</span>
+    </div>
+    <button class="tb-btn" id="btnPlay">▶ Play</button>
+    <button class="tb-btn" id="btnReset">⟲ Reset</button>
+    <button class="tb-btn" id="btnZoomOut">−</button>
+    <button class="tb-btn" id="btnZoomIn">＋</button>
+    <button class="tb-btn" id="btnFit">Fit</button>
+  </div>
+
+  <!-- Stage -->
+  <div class="stage">
+    <!-- Inspector sidebar -->
+    <aside class="inspector" id="inspector">
+      <div class="insp-header">
+        <div class="insp-emoji" id="inspEmoji">🧠</div>
+        <div class="insp-h-text">
+          <div class="insp-title" id="inspTitle">—</div>
+          <div class="insp-sub" id="inspSub">—</div>
+        </div>
+        <div class="insp-close" id="inspClose">×</div>
+      </div>
+      <div class="insp-body" id="inspBody"></div>
+    </aside>
+
+    <!-- Scrollable canvas -->
+    <div class="canvas" id="canvas">
+      <div class="canvas__inner" id="inner">
+        <svg class="edges" id="edges" width="680" height="1080"></svg>
+        <!-- nodes + cards injected by JS -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Node type → neon palette ──────────────────────────────
+  const TYPE = {
+    llm:      { color: "#00BFFF", label: "LLM call",      tag: "blue" },
+    thinking: { color: "#818CF8", label: "Thinking",      tag: "indigo" },
+    tool:     { color: "#F59E0B", label: "Tool call",     tag: "amber" },
+    success:  { color: "#34D399", label: "Tool success",  tag: "emerald" },
+    error:    { color: "#F87171", label: "Tool error",    tag: "red" },
+    blocked:  { color: "#F43F5E", label: "Blocked tool",  tag: "rose" },
+    final:    { color: "#34D399", label: "Final answer",  tag: "emerald" },
+  };
+
+  // ── Demo trace (Flight Recorder · VPN triage) ─────────────
+  const NODES = [
+    { id: 1, type: "llm", icon: "🧠", step: 1, x: 130, y: 70,
+      title: "LLM call · start", tagText: "LLM",
+      body: "The triage agent receives ticket JSM-2847 and plans its first action from the system + user prompt.",
+      duration: "1546 ms", status: "completed · 1 020 tok",
+      codeLabel: "Prompt (sent to LLM)",
+      code: "system: You are an IT triage agent.\nuser: Ticket JSM-2847 — cannot connect to\nthe corporate VPN, 'authentication\ntimeout' on Windows 11.",
+      outLabel: "Response",
+      output: "(decided to call: search_kb)" },
+
+    { id: 2, type: "thinking", icon: "💭", step: 2, x: 380, y: 180,
+      title: "Thinking", tagText: "REASONING",
+      body: "Reasoning: the symptom is a VPN authentication timeout — I should look up the knowledge base before assigning anyone.",
+      duration: "509 ms", status: "internal step",
+      codeLabel: "Chain-of-thought",
+      code: "VPN + 'authentication timeout' →\nlikely a Network knowledge article.\nNext: call search_kb with keywords.",
+      outLabel: null, output: null },
+
+    { id: 3, type: "tool", icon: "🔍", step: 3, x: 150, y: 320,
+      title: "Tool call · search_kb", tagText: "TOOL",
+      body: "search_kb({ query: \"vpn authentication timeout windows 11\" }) — querying the knowledge base.",
+      duration: "830 ms", status: "invoked",
+      codeLabel: "Tool input",
+      code: "search_kb({\n  \"query\": \"vpn authentication timeout windows 11\"\n})",
+      outLabel: null, output: null },
+
+    { id: 4, type: "success", icon: "✓", step: 4, x: 400, y: 450,
+      title: "Tool ok · search_kb", tagText: "SUCCESS",
+      body: "Returned KB-12 \"Resolving VPN authentication timeouts\", category Network, relevance score 4.",
+      duration: "1 ms", status: "200 · returned 1 article",
+      codeLabel: "Tool output",
+      code: "{\n  \"found\": true,\n  \"id\": \"KB-12\",\n  \"category\": \"Network\",\n  \"score\": 4\n}",
+      outLabel: null, output: null },
+
+    { id: 5, type: "tool", icon: "🔔", step: 5, x: 175, y: 590,
+      title: "Tool call · send_notification", tagText: "TOOL",
+      body: "send_notification({ user: \"alice.martin@corp\", message: \"Ticket assigned…\" }) — side-effecting tool.",
+      duration: "918 ms", status: "invoked",
+      codeLabel: "Tool input",
+      code: "send_notification({\n  \"user\": \"alice.martin@corp.example\",\n  \"message\": \"JSM-2847 assigned (High)\"\n})",
+      outLabel: null, output: null },
+
+    { id: 6, type: "blocked", icon: "🚫", step: 6, x: 415, y: 710,
+      title: "Blocked · send_notification", tagText: "BLOCKED",
+      body: "Side-effecting tool blocked during replay — no real notification was sent. Safety guarantee preserved.",
+      duration: "0 ms", status: "blocked_during_replay",
+      codeLabel: "Intercepted result",
+      code: "{\n  \"status\": \"blocked_during_replay\",\n  \"would_have_notified\": \"alice.martin@corp.example\"\n}",
+      outLabel: null, output: null },
+
+    { id: 7, type: "final", icon: "🏁", step: 7, x: 205, y: 860,
+      title: "Final answer", tagText: "DECISION",
+      body: "DECISION: priority=High; assignee=Alice Martin; reason=VPN auth timeout matches KB-12 (Network).",
+      duration: "813 ms", status: "completed",
+      codeLabel: "Final decision",
+      code: "DECISION:\n  priority = High\n  assignee = Alice Martin <alice.martin@corp.example>\n  reason   = VPN authentication timeout (KB-12, Network)",
+      outLabel: null, output: null },
+  ];
+  const EDGES = [[1,2],[2,3],[3,4],[4,5],[5,6],[6,7]];
+
+  // ── helpers ───────────────────────────────────────────────
+  const pad = (n) => ("0" + n).slice(-2);
+  const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const byId = (id) => NODES.find((n) => n.id === id);
+  const center = (n) => ({ x: n.x + 28, y: n.y + 28 });
+  const inner = document.getElementById("inner");
+  const svg = document.getElementById("edges");
+  const SVGNS = "http://www.w3.org/2000/svg";
+
+  // ── render edges ──────────────────────────────────────────
+  EDGES.forEach(([a, b]) => {
+    const na = byId(a), nb = byId(b);
+    const ca = center(na), cb = center(nb);
+    const line = document.createElementNS(SVGNS, "line");
+    line.setAttribute("x1", ca.x); line.setAttribute("y1", ca.y);
+    line.setAttribute("x2", cb.x); line.setAttribute("y2", cb.y);
+    line.setAttribute("stroke", TYPE[na.type].color);
+    line.setAttribute("stroke-width", "1.5");
+    line.setAttribute("stroke-linecap", "round");
+    line.setAttribute("stroke-dasharray", "10 12");
+    line.setAttribute("opacity", "0.85");
+    line.classList.add("edge");
+    svg.appendChild(line);
+  });
+
+  // ── render nodes + cards ──────────────────────────────────
+  function alpha(hex, a) { return hex + a; } // hex + 2-digit alpha
+  NODES.forEach((n) => {
+    const t = TYPE[n.type];
+    const c = t.color;
+    const vars = `--c:${c}; --c44:${alpha(c,"44")}; --c66:${alpha(c,"66")}; --c77:${alpha(c,"77")}; --cbb:${alpha(c,"bb")};`;
+
+    // node
+    const node = document.createElement("div");
+    node.className = `node node--${n.type}`;
+    node.style.cssText = `left:${n.x}px; top:${n.y}px; ${vars}`;
+    node.dataset.id = n.id;
+    node.innerHTML = `<span class="node__icon">${n.icon}</span><span class="node__step">${pad(n.step)}</span>`;
+    node.addEventListener("click", () => openInspector(n.id));
+    inner.appendChild(node);
+
+    // card (below node, centered)
+    const card = document.createElement("div");
+    card.className = "card";
+    card.style.cssText = `left:${n.x - 62}px; top:${n.y + 64}px;`;
+    card.dataset.id = n.id;
+    card.innerHTML = `
+      <div class="card__title">${esc(n.title)}</div>
+      <div class="card__body">${esc(n.body)}</div>
+      <div class="card__tags"><span class="tag tag--${t.tag}">${esc(n.tagText)}</span></div>`;
+    card.addEventListener("click", (e) => {
+      // expand body on click; the tag opens the inspector
+      if (e.detail === 2) return openInspector(n.id);
+      card.classList.toggle("is-open");
+    });
+    inner.appendChild(card);
+  });
+
+  // ── inspector ─────────────────────────────────────────────
+  const inspector = document.getElementById("inspector");
+  function selectNode(id) {
+    document.querySelectorAll(".node").forEach((el) =>
+      el.classList.toggle("is-selected", +el.dataset.id === id));
+  }
+  function section(label, html) {
+    return `<div class="insp-label">${label}</div><div class="insp-rule"></div>${html}`;
+  }
+  function openInspector(id) {
+    const n = byId(id), t = TYPE[n.type];
+    selectNode(id);
+    const emoji = document.getElementById("inspEmoji");
+    emoji.textContent = n.icon;
+    emoji.style.cssText = `--c:${t.color}; --c66:${alpha(t.color,"66")}; border-color:${t.color}; box-shadow:0 0 16px ${alpha(t.color,"66")}`;
+    document.getElementById("inspTitle").textContent = n.title;
+    const sub = document.getElementById("inspSub");
+    sub.textContent = `${t.label} · step ${pad(n.step)}`;
+    sub.style.color = t.color;
+
+    let html = section("Status", `<div class="kv"><span>${esc(n.status)}</span><b>${esc(n.duration)}</b></div>`);
+    html += section(n.codeLabel || "Input", `<pre class="code">${esc(n.code)}</pre>`);
+    if (n.output) html += section(n.outLabel || "Output", `<pre class="code">${esc(n.output)}</pre>`);
+    html += section("Inject patch · what-if",
+      `<textarea class="patch" spellcheck="false">${esc(n.code)}</textarea>
+       <button class="apply-btn" id="applyBtn">⚡ Apply patch &amp; re-run</button>`);
+    document.getElementById("inspBody").innerHTML = html;
+
+    document.getElementById("applyBtn").addEventListener("click", (e) => {
+      const b = e.currentTarget;
+      b.classList.add("flash");
+      b.textContent = "✓ Patch queued — re-flying agent…";
+      setTimeout(() => { b.classList.remove("flash"); b.textContent = "⚡ Apply patch & re-run"; }, 1600);
+    });
+
+    inspector.classList.add("is-open");
+  }
+  document.getElementById("inspClose").addEventListener("click", () => {
+    inspector.classList.remove("is-open");
+    selectNode(-1);
+  });
+
+  // ── toolbar: play / reset / zoom / fit ────────────────────
+  let playing = null;
+  document.getElementById("btnPlay").addEventListener("click", () => {
+    if (playing) return;
+    const nodes = [...document.querySelectorAll(".node")];
+    let i = 0;
+    playing = setInterval(() => {
+      if (i >= nodes.length) { clearInterval(playing); playing = null; return; }
+      const el = nodes[i];
+      el.classList.add("is-pulse");
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => el.classList.remove("is-pulse"), 600);
+      i++;
+    }, 720);
+  });
+  document.getElementById("btnReset").addEventListener("click", () => {
+    if (playing) { clearInterval(playing); playing = null; }
+    document.querySelectorAll(".node").forEach((el) => el.classList.remove("is-pulse"));
+    inspector.classList.remove("is-open");
+    selectNode(-1);
+    document.getElementById("canvas").scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  let zoom = 1;
+  const applyZoom = () => { inner.style.transform = `scale(${zoom})`; };
+  document.getElementById("btnZoomIn").addEventListener("click", () => { zoom = Math.min(1.6, zoom + 0.1); applyZoom(); });
+  document.getElementById("btnZoomOut").addEventListener("click", () => { zoom = Math.max(0.6, zoom - 0.1); applyZoom(); });
+  document.getElementById("btnFit").addEventListener("click", () => { zoom = 1; applyZoom(); document.getElementById("canvas").scrollTo({ top: 0, behavior: "smooth" }); });
+</script>
+</body>
+</html>
