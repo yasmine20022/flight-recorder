@@ -32,9 +32,17 @@ def label_for(category: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "", category) or "general"
 
 
+def _base_url() -> str:
+    """Normalise the Jira base URL: trim, drop trailing slash, ensure an https:// scheme."""
+    url = settings.jira_base_url.strip().rstrip("/")
+    if url and not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+
 def _client() -> httpx.Client:
     return httpx.Client(
-        base_url=settings.jira_base_url.rstrip("/"),
+        base_url=_base_url(),
         auth=(settings.jira_email, settings.jira_api_token),
         headers={"Accept": "application/json", "Content-Type": "application/json"},
         timeout=30.0,

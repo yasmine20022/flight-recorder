@@ -127,10 +127,8 @@ def _assign_ticket_id(req: RunRequest) -> str:
 
         try:
             return jira_client.create_issue(req.ticket_text)
-        except jira_client.JiraError as exc:
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, f"Could not create Jira ticket: {exc}"
-            )
+        except jira_client.JiraError:
+            pass  # Jira hiccup → don't block the run; fall back to a generated id
     import random
 
     return f"JSM-{random.randint(1000, 9999)}"
