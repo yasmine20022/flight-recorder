@@ -26,9 +26,22 @@ class Settings(BaseSettings):
     # 8b-instant has a much larger free-tier daily token budget than 70b and is plenty
     # for this triage task. Override with GROQ_MODEL in .env if you want the 70b model.
     groq_model: str = "llama-3.1-8b-instant"
+    # The free tier has a low per-minute token limit (TPM). Let the Groq client retry
+    # transient 429s with exponential backoff (it honours the Retry-After header) so a
+    # short burst over the limit self-heals instead of failing the whole run.
+    groq_max_retries: int = 6
 
     # --- Storage ---
     database_path: str = "flight_recorder.db"
+
+    # --- Real Jira integration (optional) ---
+    # When all three are set, the agent reads real past tickets from Jira (query_db) and
+    # posts a real comment on the ticket (send_notification). Leave blank to use the local
+    # mock — the system works fully offline either way.
+    jira_base_url: str = ""   # e.g. https://your-domain.atlassian.net
+    jira_email: str = ""      # your Atlassian account email
+    jira_api_token: str = ""  # from https://id.atlassian.com/manage-profile/security/api-tokens
+    jira_project_key: str = ""  # optional: scope searches to one project, e.g. "JSM"
 
     # --- Audit: secret used to HMAC-sign traces (Bonus 8) ---
     signing_secret: str = "dev-flight-recorder-secret-change-me"
@@ -38,6 +51,11 @@ class Settings(BaseSettings):
         """Absolute path to the SQLite file."""
         path = Path(self.database_path)
         return path if path.is_absolute() else BACKEND_DIR / path
+
+    @property
+    def jira_enabled(self) -> bool:
+        """True only when enough is configured to talk to a real Jira."""
+        return bool(self.jira_base_url and self.jira_email and self.jira_api_token)
 
 
 settings = Settings()

@@ -7,6 +7,7 @@ import NewRun from "./components/NewRun.jsx";
 import InstrumentBar from "./components/InstrumentBar.jsx";
 import PlaybackControls from "./components/PlaybackControls.jsx";
 import WhatIfEditor from "./components/WhatIfEditor.jsx";
+import WhatIfPromptEditor from "./components/WhatIfPromptEditor.jsx";
 import WhatIfCompare from "./components/WhatIfCompare.jsx";
 import AuditBar from "./components/AuditBar.jsx";
 
@@ -22,9 +23,10 @@ export default function App() {
   const [replaying, setReplaying] = useState(false);
   const [whatifResult, setWhatifResult] = useState(null);
   const [whatifRunning, setWhatifRunning] = useState(false);
+  const [agentPrompts, setAgentPrompts] = useState(null);
   const [audit, setAudit] = useState({ signature: null, anomalies: null });
   const [error, setError] = useState(null);
-  const [theme, setTheme] = useState(() => localStorage.getItem("fr-theme") || "dark");
+  const [theme, setTheme] = useState(() => localStorage.getItem("fr-theme") || "light");
 
   const steps = activeSession?.steps ?? [];
   const selectedStep = steps[cursor] ?? null;
@@ -40,6 +42,14 @@ export default function App() {
     return list;
   }, []);
 
+  // Load the audit strip (signature + anomalies) for any stored session — live or replay.
+  const loadAudit = useCallback((sessionId) => {
+    setAudit({ signature: null, anomalies: null });
+    Promise.all([live.signature(sessionId), live.anomalies(sessionId)])
+      .then(([signature, anomalies]) => setAudit({ signature, anomalies }))
+      .catch(() => setAudit({ signature: null, anomalies: null }));
+  }, []);
+
   const connect = useCallback(async () => {
     setError(null);
     const ok = await checkOnline();
@@ -47,6 +57,7 @@ export default function App() {
     if (ok) {
       try {
         await refreshSessions();
+        live.agentPrompt().then(setAgentPrompts).catch(() => setAgentPrompts(null));
       } catch (e) {
         setError(e.message);
       }
@@ -75,10 +86,7 @@ export default function App() {
       setCursor(0);
       setPlaying(false);
       setReplayResult(null);
-      setAudit({ signature: null, anomalies: null });
-      Promise.all([live.signature(sessionId), live.anomalies(sessionId)])
-        .then(([signature, anomalies]) => setAudit({ signature, anomalies }))
-        .catch(() => setAudit({ signature: null, anomalies: null }));
+      loadAudit(sessionId);
     } catch (e) {
       setError(e.message);
     }
@@ -99,6 +107,9 @@ export default function App() {
       setActiveSession(result.session);
       setCursor(0);
       setPlaying(true);
+      // The replay is now a stored, first-class session: load its audit too.
+      loadAudit(result.session.session_id);
+      refreshSessions();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -112,6 +123,20 @@ export default function App() {
     setError(null);
     try {
       const result = await live.whatif(activeSession.session_id, toolName, newOutput);
+      setWhatifResult(result);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setWhatifRunning(false);
+    }
+  }
+
+  async function handleWhatIfPrompt(systemPrompt) {
+    if (!activeSession) return;
+    setWhatifRunning(true);
+    setError(null);
+    try {
+      const result = await live.whatifPrompt(activeSession.session_id, systemPrompt);
       setWhatifResult(result);
     } catch (e) {
       setError(e.message);
@@ -134,6 +159,11 @@ export default function App() {
   };
 
   const canReplay = activeSession && activeSession.mode !== "replay";
+  // Live AND replay sessions are real recorded runs: they get the full toolset
+  // (audit strip + What-If divergence), unlike hand-written synthetic demos.
+  const isRecordedRun =
+    activeSession && !activeSession.synthetic &&
+    (activeSession.mode === "live" || activeSession.mode === "replay");
 
   return (
     <div className="app">
@@ -192,7 +222,7 @@ export default function App() {
             {activeSession ? (
               <>
                 <InstrumentBar session={activeSession} replay={replayResult} />
-                {activeSession.mode === "live" && (audit.signature || audit.anomalies) && (
+                {isRecordedRun && (audit.signature || audit.anomalies) && (
                   <AuditBar
                     sessionId={activeSession.session_id}
                     signature={audit.signature}
@@ -231,10 +261,20 @@ export default function App() {
           <aside className="panel">
             <h2 className="panel__title">Black Box Readout</h2>
             <StepDetail step={selectedStep} />
-            {activeSession?.mode === "live" && selectedStep?.type === "tool_call" && (
+            {isRecordedRun && selectedStep?.type === "tool_call" && (
               <>
                 <hr className="sep" />
                 <WhatIfEditor step={selectedStep} onRun={handleWhatIf} running={whatifRunning} />
+              </>
+            )}
+            {isRecordedRun && selectedStep?.type === "llm_call" && (
+              <>
+                <hr className="sep" />
+                <WhatIfPromptEditor
+                  prompts={agentPrompts}
+                  onRun={handleWhatIfPrompt}
+                  running={whatifRunning}
+                />
               </>
             )}
           </aside>

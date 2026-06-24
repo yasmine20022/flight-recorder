@@ -27,11 +27,12 @@ def record_ticket(
     *,
     store: Optional[Storage] = None,
     agent: Any = None,
+    model_name: Optional[str] = None,
 ) -> Session:
     """Run the agent on a ticket while capturing every step, then save the trace.
 
     ``agent`` and ``store`` are injectable for testing; by default the real triage agent
-    and the default SQLite storage are used.
+    and the default SQLite storage are used. ``model_name`` selects which Groq model to run.
     """
     from langchain_core.messages import HumanMessage
 
@@ -39,7 +40,9 @@ def record_ticket(
     if agent is None:
         from flight_recorder.agent.graph import build_agent
 
-        agent = build_agent()
+        agent = build_agent(model_name=model_name)
+
+    from flight_recorder.agent import tools as agent_tools
 
     recorder = TraceRecorder()
     session = Session(
@@ -50,6 +53,9 @@ def record_ticket(
         mode=SessionMode.LIVE,
     )
 
+    # Tell the tools which Jira issue this run is about (used by send_notification when a
+    # real Jira is configured); reset afterwards so it never leaks into another run.
+    token = agent_tools.set_current_issue(ticket_id)
     try:
         agent.invoke(
             {"messages": [HumanMessage(content=f"Ticket {ticket_id}:\n{ticket_text}")]},
@@ -61,6 +67,8 @@ def record_ticket(
         session.steps = recorder.steps
         store.save_session(session)
         raise
+    finally:
+        agent_tools.reset_current_issue(token)
 
     session.steps = recorder.steps
     store.save_session(session)

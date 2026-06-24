@@ -18,9 +18,12 @@ def test_clean_session_has_no_critical_anomalies():
         Step(step_number=1, type=StepType.LLM_CALL, prompt="p", response="searching"),
         Step(step_number=2, type=StepType.TOOL_CALL, tool_name="search_kb",
              input={"query": "vpn"}, output={"found": True}),
-        Step(step_number=3, type=StepType.TOOL_CALL, tool_name="send_notification",
+        # The agent looked the recipient up before notifying them — a clean run.
+        Step(step_number=3, type=StepType.TOOL_CALL, tool_name="get_user_info",
+             input={"team_name": "Network"}, output={"email": "alice.martin@corp.example"}),
+        Step(step_number=4, type=StepType.TOOL_CALL, tool_name="send_notification",
              input={"user": "alice.martin@corp.example"}, output={"status": "sent"}),
-        Step(step_number=4, type=StepType.LLM_CALL, prompt="p2",
+        Step(step_number=5, type=StepType.LLM_CALL, prompt="p2",
              response="DECISION: priority=High; assignee=Alice"),
     ]
     assert detect_anomalies(_session(steps)) == []

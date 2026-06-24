@@ -1,7 +1,7 @@
-"""Seed the SQLite database with one demo session.
+"""Seed the SQLite database with one curated demo session.
 
-This is the same trace the frontend mock (frontend/src/mock_data.json) renders, so the
-UI looks identical whether it reads the mock or the live API.
+A hand-written trace (``synthetic=True``) so the UI has something to show on a fresh DB
+without spending any LLM tokens. Real runs are recorded live via the API.
 
 Usage:
     python -m scripts.seed_db

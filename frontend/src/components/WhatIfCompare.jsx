@@ -43,17 +43,21 @@ function Column({ title, badge, steps, otherSteps, overridden }) {
 }
 
 export default function WhatIfCompare({ result, onBack }) {
-  const { original, whatif, overridden_tool } = result;
+  const { original, whatif, overridden_tool, override_kind } = result;
   const decA = decisionOf(original);
   const decB = decisionOf(whatif);
   const changed = decA.trim() !== decB.trim();
+  const headLabel =
+    override_kind === "system_prompt"
+      ? "injected corrected prompt"
+      : `overrode ${overridden_tool}`;
 
   return (
     <div className="panel cmp">
       <div className="cmp__head">
         <button className="btn" onClick={onBack}>← Back to recorder</button>
         <span className="cmp__headtitle">
-          ↯ WHAT-IF DIVERGENCE · overrode <b>{overridden_tool}</b>
+          ↯ WHAT-IF DIVERGENCE · <b>{headLabel}</b>
         </span>
       </div>
 

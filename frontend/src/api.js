@@ -25,15 +25,20 @@ export const live = {
   async getSession(id) {
     return call(`/sessions/${id}`);
   },
-  async runTicket(ticket_id, ticket_text) {
+  async models() {
+    return call("/models");
+  },
+  async runTicket(ticket_id, ticket_text, model) {
     return call("/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ticket_id, ticket_text }),
+      body: JSON.stringify({ ticket_id, ticket_text, model }),
     });
   },
   async replay(session_id) {
-    return call(`/sessions/${session_id}/replay`, { method: "POST" });
+    // engine=proxy re-runs the real agent but serves the LLM answers from the recorded
+    // cache — zero real LLM calls, zero tokens, side effects blocked. Deterministic & safe.
+    return call(`/sessions/${session_id}/replay?engine=proxy`, { method: "POST" });
   },
   async whatif(session_id, tool_name, new_output) {
     return call(`/sessions/${session_id}/whatif`, {
@@ -41,6 +46,16 @@ export const live = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tool_name, new_output }),
     });
+  },
+  async whatifPrompt(session_id, system_prompt) {
+    return call(`/sessions/${session_id}/whatif`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system_prompt }),
+    });
+  },
+  async agentPrompt() {
+    return call("/agent/prompt");
   },
   async anomalies(session_id) {
     return call(`/sessions/${session_id}/anomalies`);

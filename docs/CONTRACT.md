@@ -37,30 +37,35 @@ A step is **fine-grained**: an LLM call and a tool call are two separate steps.
 | `tool_name`   | string \| null  | `tool_call`          | One of the simulated tools                   |
 | `input`       | object \| null  | `tool_call`          | Exact tool arguments                         |
 | `output`      | object \| null  | `tool_call`          | Exact tool result                            |
+| `model`       | string \| null  | `llm_call`           | Provider model id (proof the call hit Groq)  |
+| `tokens`      | int \| null     | `llm_call`           | Total tokens billed for the call             |
+| `ai_message`  | object \| null  | `llm_call`           | Internal: serialized AIMessage so the proxy can replay the exact tool-call decision (not shown in UI) |
 
 Fields not relevant to a step's `type` are `null`.
 
 ### Example
 
 See [`backend/flight_recorder/core/schemas.py`](../backend/flight_recorder/core/schemas.py)
-for the authoritative Pydantic models and
-[`frontend/src/mock_data.json`](../frontend/src/mock_data.json) for a full example the UI
-develops against.
+for the authoritative Pydantic models.
 
 ---
 
 ## 2. REST API (FastAPI, base path `/api`)
 
-| Method | Path                              | Sprint | Description                                              |
-|--------|-----------------------------------|--------|----------------------------------------------------------|
-| GET    | `/api/health`                     | 0      | Liveness probe → `{"status": "ok"}`                      |
-| GET    | `/api/sessions`                   | 0      | List sessions (summary, **no** `steps`)                  |
-| GET    | `/api/sessions/{session_id}`      | 0      | Full session **with** `steps`                            |
-| POST   | `/api/runs`                       | 1      | Run agent live on a ticket → returns new session         |
-| POST   | `/api/sessions/{session_id}/replay` | 3    | Deterministic replay → returns replayed session + counters |
-| POST   | `/api/sessions/{session_id}/whatif` | 5    | Divergence from a step → returns original + new trajectory |
+| Method | Path                              | Description                                              |
+|--------|-----------------------------------|----------------------------------------------------------|
+| GET    | `/api/health`                     | Liveness probe → `{"status": "ok"}`                      |
+| GET    | `/api/sessions`                   | List sessions (summary, **no** `steps`)                  |
+| GET    | `/api/sessions/{session_id}`      | Full session **with** `steps`                            |
+| POST   | `/api/runs`                       | Run agent live on a ticket → returns new session         |
+| POST   | `/api/sessions/{session_id}/replay` | Deterministic replay → replayed session + counters. Optional `?engine=proxy` re-runs the agent with the LLM served from cache by the proxy |
+| POST   | `/api/sessions/{session_id}/whatif` | Divergence run → returns original + new trajectory     |
+| GET    | `/api/agent/prompt`               | The agent's current (buggy) + corrected system prompts   |
+| GET    | `/api/sessions/{session_id}/anomalies` | Audit findings for a session                        |
+| GET    | `/api/sessions/{session_id}/signature` | Tamper-evident HMAC signature of the trace          |
+| GET    | `/api/sessions/{session_id}/report.pdf` | Compliance PDF export                               |
 
-Endpoints for sprints 1/3/5 are **stubbed** in Sprint 0 (documented shape, `501 Not Implemented`).
+All endpoints are **fully implemented**.
 
 ### `GET /api/sessions` response
 ```json
@@ -73,12 +78,21 @@ Endpoints for sprints 1/3/5 are **stubbed** in Sprint 0 (documented shape, `501 
 ### `GET /api/sessions/{session_id}` response
 Full **Session object** including `steps` (see section 1).
 
-### `POST /api/runs` request (Sprint 1)
+### `POST /api/runs` request
 ```json
 { "ticket_id": "JSM-2847", "ticket_text": "Cannot connect to VPN..." }
 ```
 
-### Replay response will include proof counters (Sprint 3)
+### Replay response includes proof counters
 ```json
 { "session": { ... }, "real_calls": 0, "intercepted_calls": 6 }
 ```
+
+### `POST /api/sessions/{id}/whatif` request — one correction is required
+```json
+// tool override:
+{ "tool_name": "get_user_info", "new_output": { "name": "Grace Kim", "email": "grace.kim@corp.example" } }
+// OR prompt injection (re-run with corrected instructions):
+{ "system_prompt": "...corrected agent instructions..." }
+```
+Response: `{ "original": {Session}, "whatif": {Session}, "overridden_tool": "...", "override_kind": "tool" | "system_prompt" }`

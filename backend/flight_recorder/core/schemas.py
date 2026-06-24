@@ -57,6 +57,10 @@ class Step(BaseModel):
     input: Optional[dict[str, Any]] = None
     output: Optional[dict[str, Any]] = None
 
+    # Serialized AIMessage for an llm_call (langchain message dict). Internal: lets the
+    # proxy replay the exact tool-call decisions without hitting the LLM. Not shown in UI.
+    ai_message: Optional[dict[str, Any]] = None
+
 
 class SessionSummary(BaseModel):
     """Lightweight session row returned by ``GET /api/sessions`` (no steps)."""
@@ -81,10 +85,15 @@ class Session(SessionSummary):
 
 
 class RunRequest(BaseModel):
-    """Body of ``POST /api/runs`` (Sprint 1)."""
+    """Body of ``POST /api/runs``.
 
-    ticket_id: str
+    ``ticket_id`` is optional: leave it blank and the server assigns one automatically —
+    a real Jira issue when Jira is configured, otherwise a generated ``JSM-####`` id.
+    """
+
+    ticket_id: str = ""
     ticket_text: str
+    model: str = ""  # which LLM to run (id from /api/models); blank = configured default
 
 
 class ReplayResponse(BaseModel):
@@ -96,10 +105,17 @@ class ReplayResponse(BaseModel):
 
 
 class WhatIfRequest(BaseModel):
-    """Body of ``POST /api/sessions/{id}/whatif`` (Sprint 5)."""
+    """Body of ``POST /api/sessions/{id}/whatif``.
 
-    tool_name: str
-    new_output: dict[str, Any]
+    Two kinds of correction can be injected (exactly one is required):
+      * a **tool** override — pin ``tool_name`` to ``new_output`` and re-run, or
+      * a **prompt** override — re-run the agent with a corrected ``system_prompt``
+        (this is the "inject a corrected prompt at step 1" correction).
+    """
+
+    tool_name: Optional[str] = None
+    new_output: Optional[dict[str, Any]] = None
+    system_prompt: Optional[str] = None
 
 
 class WhatIfResponse(BaseModel):
@@ -107,7 +123,8 @@ class WhatIfResponse(BaseModel):
 
     original: Session
     whatif: Session
-    overridden_tool: str
+    overridden_tool: str          # human label of what was overridden
+    override_kind: str = "tool"   # "tool" | "system_prompt"
 
 
 class Anomaly(BaseModel):

@@ -91,3 +91,31 @@ def test_run_whatif_unknown_session_raises(tmp_storage: Storage):
 
     with pytest.raises(KeyError):
         run_whatif("nope", "get_user_info", {}, store=tmp_storage, agent=DivergingAgent())
+
+
+# --- prompt-injection override (Sprint B) ---
+
+def test_run_whatif_prompt_override_sets_kind(tmp_storage: Storage):
+    _original(tmp_storage)
+
+    result = run_whatif(
+        "run_1",
+        system_prompt="Corrected: API 500s go to Backend / Critical.",
+        store=tmp_storage,
+        agent=DivergingAgent(),
+    )
+
+    assert result.override_kind == "system_prompt"
+    assert "system prompt" in result.overridden_tool.lower()
+    assert result.whatif.mode == SessionMode.WHATIF
+    # Still a real divergence: the decision differs from the original.
+    assert result.original.steps[-1].response != result.whatif.steps[-1].response
+
+
+def test_run_whatif_requires_some_override(tmp_storage: Storage):
+    import pytest
+
+    _original(tmp_storage)
+    # No tool override and no prompt override → can't diverge.
+    with pytest.raises(ValueError):
+        run_whatif("run_1", store=tmp_storage)

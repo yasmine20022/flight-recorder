@@ -10,7 +10,6 @@ import json
 
 from flight_recorder.core.schemas import Anomaly, Session, StepType
 
-CORP_DOMAIN = "@corp.example"
 MAX_REASONABLE_STEPS = 12
 
 
@@ -46,17 +45,24 @@ def detect_anomalies(session: Session) -> list[Anomaly]:
                          f"(steps {nums}) — possible reasoning loop."),
             ))
 
-    # 3) Suspicious argument: notifying outside the corporate domain (likely hallucinated).
+    # 3) Suspicious argument: notifying an address that get_user_info never returned — a
+    #    hallucinated/made-up recipient. Domain-agnostic, so it works with real Jira users.
+    known_emails = {
+        s.output.get("email")
+        for s in steps
+        if s.type == StepType.TOOL_CALL and s.tool_name == "get_user_info"
+        and isinstance(s.output, dict) and s.output.get("email")
+    }
     for step in steps:
         if step.type == StepType.TOOL_CALL and step.tool_name == "send_notification":
             user = str((step.input or {}).get("user", ""))
-            if user and not user.endswith(CORP_DOMAIN):
+            if user and user not in known_emails:
                 anomalies.append(Anomaly(
                     type="suspicious_argument",
                     severity="critical",
                     step_number=step.step_number,
-                    message=(f"send_notification targeted '{user}', outside the corporate "
-                             f"domain {CORP_DOMAIN}."),
+                    message=(f"send_notification targeted '{user}', which get_user_info never "
+                             f"returned — possible hallucinated recipient."),
                 ))
 
     # 4) Runaway length.

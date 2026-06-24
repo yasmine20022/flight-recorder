@@ -28,18 +28,25 @@ from flight_recorder.core.storage import Storage, storage as default_storage
 class WhatIfResult:
     original: Session
     whatif: Session
-    overridden_tool: str
+    overridden_tool: str          # human label of what was overridden
+    override_kind: str = "tool"   # "tool" | "system_prompt"
 
 
 def run_whatif(
     session_id: str,
-    tool_name: str,
-    new_output: dict[str, Any],
+    tool_name: Optional[str] = None,
+    new_output: Optional[dict[str, Any]] = None,
     *,
+    system_prompt: Optional[str] = None,
     store: Optional[Storage] = None,
     agent: Any = None,
 ) -> WhatIfResult:
-    """Re-run the agent for ``session_id`` with ``tool_name`` pinned to ``new_output``."""
+    """Re-run the agent for ``session_id`` with one correction injected, then compare.
+
+    Provide exactly one correction:
+      * ``tool_name`` + ``new_output`` — pin that tool's output and re-run, or
+      * ``system_prompt`` — re-run the agent with corrected instructions (prompt injection).
+    """
     from langchain_core.messages import HumanMessage
 
     store = store or default_storage
@@ -47,11 +54,20 @@ def run_whatif(
     if original is None:
         raise KeyError(session_id)
 
+    override_kind = "system_prompt" if system_prompt else "tool"
+
     if agent is None:
         from flight_recorder.agent.graph import build_agent
 
-        tools = apply_overrides(ALL_TOOLS, {tool_name: new_output})
-        agent = build_agent(tools)
+        if override_kind == "system_prompt":
+            agent = build_agent(system_prompt=system_prompt)
+        else:
+            if not tool_name:
+                raise ValueError(
+                    "Provide either tool_name + new_output, or system_prompt, to diverge."
+                )
+            tools = apply_overrides(ALL_TOOLS, {tool_name: new_output or {}})
+            agent = build_agent(tools)
 
     recorder = TraceRecorder()
     agent.invoke(
@@ -67,4 +83,10 @@ def run_whatif(
         mode=SessionMode.WHATIF,
         steps=recorder.steps,
     )
-    return WhatIfResult(original=original, whatif=whatif_session, overridden_tool=tool_name)
+    label = tool_name if override_kind == "tool" else "system prompt (instructions)"
+    return WhatIfResult(
+        original=original,
+        whatif=whatif_session,
+        overridden_tool=label,
+        override_kind=override_kind,
+    )

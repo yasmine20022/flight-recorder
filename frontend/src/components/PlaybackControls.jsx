@@ -32,8 +32,14 @@ export default function PlaybackControls({
 
       {canReplay && (
         <button className="btn btn--primary" onClick={onReplay} disabled={replaying}>
-          {replaying ? "Replaying…" : "↻ Replay safely"}
+          {replaying ? "⟳ Replaying…" : "↻ Replay safely"}
         </button>
+      )}
+
+      {replaying && (
+        <p className="playback__note muted small">
+          Re-running the agent from the recorded trace — <b>no real LLM call</b>, side effects blocked.
+        </p>
       )}
     </div>
   );

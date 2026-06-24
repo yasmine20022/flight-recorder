@@ -1,16 +1,28 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { live } from "../api.js";
 
-// Generate a plausible Jira-style id so the user doesn't have to invent one.
-function freshTicketId() {
-  return "JSM-" + Math.floor(1000 + Math.random() * 9000);
-}
-
+// The user describes the problem and picks which LLM to run. The backend assigns the ticket
+// id automatically (a real Jira issue when Jira is configured).
 export default function NewRun({ onRecorded }) {
-  const [ticketId, setTicketId] = useState(freshTicketId);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [created, setCreated] = useState(null);
+  const [models, setModels] = useState([]);
+  const [model, setModel] = useState("");
+
+  // Load the list of available LLMs once.
+  useEffect(() => {
+    live
+      .models()
+      .then((res) => {
+        setModels(res.models || []);
+        setModel(res.default || (res.models?.[0]?.id ?? ""));
+      })
+      .catch(() => setModels([]));
+  }, []);
+
+  const selected = models.find((m) => m.id === model);
 
   async function run() {
     if (!text.trim()) {
@@ -19,11 +31,13 @@ export default function NewRun({ onRecorded }) {
     }
     setBusy(true);
     setError(null);
+    setCreated(null);
     try {
-      const session = await live.runTicket(ticketId.trim() || freshTicketId(), text.trim());
+      // Empty ticket id => the server creates/assigns one automatically.
+      const session = await live.runTicket("", text.trim(), model);
+      setCreated(session.ticket_id);
       onRecorded(session.session_id);
       setText("");
-      setTicketId(freshTicketId());
     } catch (e) {
       setError(e.message);
     } finally {
@@ -33,28 +47,35 @@ export default function NewRun({ onRecorded }) {
 
   return (
     <div className="newrun">
-      <input
-        className="newrun__id"
-        value={ticketId}
-        onChange={(e) => setTicketId(e.target.value)}
-        disabled={busy}
-        placeholder="Ticket ID"
-        aria-label="Ticket ID"
-      />
+      <label className="newrun__label" htmlFor="model-select">🧠 LLM model</label>
+      <select
+        id="model-select"
+        className="newrun__model"
+        value={model}
+        onChange={(e) => setModel(e.target.value)}
+        disabled={busy || models.length === 0}
+      >
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>{m.label}</option>
+        ))}
+      </select>
+      {selected?.note && <p className="muted small newrun__note">{selected.note}</p>}
+
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         disabled={busy}
         rows={3}
-        placeholder="Describe the IT ticket in your own words…"
+        placeholder="Describe the problem… a ticket is created & triaged automatically"
         aria-label="Ticket description"
       />
       <button className="btn btn--primary" onClick={run} disabled={busy}>
-        {busy ? "Running & recording… (~1–2 min)" : "▶ Run & record"}
+        {busy ? "Creating ticket & triaging… (~1–2 min)" : "▶ Run & record"}
       </button>
       {busy && (
         <p className="muted small">The agent is calling the LLM and tools; every step is being captured.</p>
       )}
+      {created && !busy && <p className="muted small">✓ Triaged ticket <b>{created}</b></p>}
       {error && <p className="error small">⚠ {error}</p>}
     </div>
   );

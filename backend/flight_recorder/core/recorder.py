@@ -22,7 +22,7 @@ from typing import Any
 from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, message_to_dict
 from langchain_core.outputs import LLMResult
 
 from flight_recorder.core.schemas import Step, StepType
@@ -111,12 +111,20 @@ class TraceRecorder(BaseCallbackHandler):
             return
         gen = response.generations[0][0] if response.generations else None
         text = getattr(gen, "text", "") if gen is not None else ""
-        if not text and gen is not None:
-            message = getattr(gen, "message", None)
+        message = getattr(gen, "message", None) if gen is not None else None
+        if not text and message is not None:
             tool_calls = getattr(message, "tool_calls", None) or []
             if tool_calls:
                 text = "(decided to call: " + ", ".join(tc["name"] for tc in tool_calls) + ")"
         model, tokens = _llm_provenance(response)
+        # Persist the exact AIMessage (with structured tool_calls) so the proxy can replay
+        # this decision deterministically without calling the LLM again.
+        ai_message = None
+        if message is not None:
+            try:
+                ai_message = message_to_dict(message)
+            except Exception:
+                ai_message = None
         self._append(
             StepType.LLM_CALL,
             pending["start"],
@@ -124,6 +132,7 @@ class TraceRecorder(BaseCallbackHandler):
             response=text,
             model=model,
             tokens=tokens,
+            ai_message=ai_message,
         )
 
     # --- Tool calls ---

@@ -104,3 +104,61 @@ def test_send_notification_rejects_unknown_recipient(tmp_path: Path, monkeypatch
 
     assert res["status"] == "rejected"
     assert not log.exists()  # nothing was written for a bogus recipient
+
+
+# --- real Jira routing (mocked — no network) ---
+
+def _enable_jira(monkeypatch):
+    from flight_recorder.config import settings
+    monkeypatch.setattr(settings, "jira_base_url", "https://example.atlassian.net")
+    monkeypatch.setattr(settings, "jira_email", "me@example.com")
+    monkeypatch.setattr(settings, "jira_api_token", "token123")
+
+
+def test_query_db_reads_real_jira_when_configured(monkeypatch):
+    from flight_recorder.agent import jira_client
+    _enable_jira(monkeypatch)
+    monkeypatch.setattr(jira_client, "search_past_tickets", lambda category, **_: [
+        {"ticket_id": "OPS-1", "summary": "VPN down", "priority": "High", "status": "Done"},
+    ])
+
+    res = _db("Network")
+    assert res["source"] == "jira"          # real Jira, not the local SQLite
+    assert res["count"] == 1
+    assert res["tickets"][0]["ticket_id"] == "OPS-1"
+
+
+def test_query_db_falls_back_to_local_on_jira_error(monkeypatch):
+    from flight_recorder.agent import jira_client
+    _enable_jira(monkeypatch)
+
+    def boom(category, **_):
+        raise jira_client.JiraError("network down")
+
+    monkeypatch.setattr(jira_client, "search_past_tickets", boom)
+
+    res = _db("Network")
+    assert res["source"] == "local"         # gracefully degraded to the mock
+    assert res["count"] >= 1
+
+
+def test_send_notification_posts_real_jira_comment(monkeypatch):
+    from flight_recorder.agent import jira_client
+    _enable_jira(monkeypatch)
+    posted = {}
+
+    def fake_comment(issue_key, message):
+        posted.update(issue_key=issue_key, message=message)
+        return {"id": "10042"}
+
+    monkeypatch.setattr(jira_client, "comment_issue", fake_comment)
+
+    token = tools.set_current_issue("OPS-7")
+    try:
+        res = send_notification.invoke({"user": "viktor.petrov@corp.example", "message": "Critical"})
+    finally:
+        tools.reset_current_issue(token)
+
+    assert res["status"] == "sent" and res["via"] == "jira_comment"
+    assert res["issue"] == "OPS-7" and res["comment_id"] == "10042"
+    assert posted["issue_key"] == "OPS-7"

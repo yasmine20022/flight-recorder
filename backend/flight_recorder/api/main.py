@@ -1,7 +1,8 @@
 """FastAPI app exposing the frozen contract (see docs/CONTRACT.md).
 
-Sprint 0 implements the read endpoints (health, list, detail). The run/replay/whatif
-endpoints are stubbed with their documented shape and return 501 until later sprints.
+Exposes the full surface: health/list/detail reads, the audit endpoints
+(anomalies, signature, compliance PDF), plus the live run, deterministic replay,
+and What-If divergence endpoints — all fully implemented.
 """
 from __future__ import annotations
 
@@ -34,6 +35,31 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/models")
+def list_models() -> dict:
+    """The LLMs the user can choose from for a run (all free on Groq, tool-calling capable)."""
+    from flight_recorder.agent.graph import AVAILABLE_MODELS
+
+    return {"default": AVAILABLE_MODELS[0]["id"], "models": AVAILABLE_MODELS}
+
+
+@app.get("/api/jira/status")
+def jira_status() -> dict:
+    """Report whether a real Jira is wired up (and reachable), for the UI to show a badge."""
+    from flight_recorder.config import settings
+
+    if not settings.jira_enabled:
+        return {"enabled": False, "ok": False, "detail": "Using local mock data."}
+    from flight_recorder.agent import jira_client
+
+    try:
+        me = jira_client.whoami()
+        return {"enabled": True, "ok": True, "account": me.get("displayName"),
+                "base_url": settings.jira_base_url}
+    except jira_client.JiraError as exc:
+        return {"enabled": True, "ok": False, "detail": str(exc)}
 
 
 @app.get("/api/sessions", response_model=list[SessionSummary])
@@ -88,15 +114,44 @@ def session_report(session_id: str) -> Response:
 # --- Live agent runs, replay, and divergence ---
 
 
+def _assign_ticket_id(req: RunRequest) -> str:
+    """Pick the ticket id: caller-provided, else a real Jira issue, else a generated id."""
+    ticket_id = (req.ticket_id or "").strip()
+    if ticket_id:
+        return ticket_id
+
+    from flight_recorder.config import settings
+
+    if settings.jira_enabled:
+        from flight_recorder.agent import jira_client
+
+        try:
+            return jira_client.create_issue(req.ticket_text)
+        except jira_client.JiraError as exc:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, f"Could not create Jira ticket: {exc}"
+            )
+    import random
+
+    return f"JSM-{random.randint(1000, 9999)}"
+
+
 @app.post("/api/runs", response_model=Session)
 def run_agent(req: RunRequest) -> Session:
-    """Run the triage agent live on a ticket, capture the trace, store it, return it."""
+    """Run the triage agent live on a ticket, capture the trace, store it, return it.
+
+    The ticket id is assigned automatically when not provided (a real Jira issue is created
+    when Jira is configured), so the user only has to describe the problem.
+    """
     import groq
 
+    from flight_recorder.agent.graph import resolve_model
     from flight_recorder.core.runner import record_ticket
 
+    ticket_id = _assign_ticket_id(req)
+    model_name = resolve_model(req.model)
     try:
-        return record_ticket(req.ticket_id, req.ticket_text)
+        return record_ticket(ticket_id, req.ticket_text, model_name=model_name)
     except groq.RateLimitError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"LLM rate limit: {exc}")
     except RuntimeError as exc:  # e.g. missing GROQ_API_KEY
@@ -104,14 +159,37 @@ def run_agent(req: RunRequest) -> Session:
 
 
 @app.post("/api/sessions/{session_id}/replay", response_model=ReplayResponse)
-def replay(session_id: str) -> ReplayResponse:
-    """Deterministically replay a stored session — zero real calls, side effects blocked."""
-    from flight_recorder.core.replay import ReplayEngine
+def replay(session_id: str, engine: str = "reemit") -> ReplayResponse:
+    """Replay a stored session.
+
+    ``engine=reemit`` (default) re-emits the stored steps — zero real calls, side effects
+    blocked. ``engine=proxy`` re-runs the agent with the LLM served from cache by the proxy.
+    ``engine=live`` re-runs the agent while **actually re-calling the LLM** (side effects
+    still blocked, so notifications are never sent).
+    """
+    import groq
 
     try:
-        result = ReplayEngine(store=storage).replay(session_id)
+        if engine == "live":
+            from flight_recorder.core.proxy_replay import replay_live
+
+            result = replay_live(session_id, store=storage)
+        elif engine == "proxy":
+            from flight_recorder.core.proxy_replay import replay_through_proxy
+
+            result = replay_through_proxy(session_id, store=storage)
+        else:
+            from flight_recorder.core.replay import ReplayEngine
+
+            result = ReplayEngine(store=storage).replay(session_id)
     except KeyError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown session: {session_id}")
+    except ValueError as exc:  # proxy replay needs a session recorded with ai_message
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    except groq.RateLimitError as exc:  # engine=live exhausted the Groq daily/TPM quota
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"LLM rate limit: {exc}")
+    except RuntimeError as exc:  # e.g. missing GROQ_API_KEY for engine=live
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
     return ReplayResponse(
         session=result.session,
         real_calls=result.real_calls,
@@ -119,17 +197,33 @@ def replay(session_id: str) -> ReplayResponse:
     )
 
 
+@app.get("/api/agent/prompt")
+def agent_prompt() -> dict[str, str]:
+    """Expose the agent's current (buggy) prompt + the corrected one, for the What-If UI."""
+    from flight_recorder.agent.graph import CORRECTED_SYSTEM_PROMPT, SYSTEM_PROMPT
+
+    return {"system_prompt": SYSTEM_PROMPT, "corrected_system_prompt": CORRECTED_SYSTEM_PROMPT}
+
+
 @app.post("/api/sessions/{session_id}/whatif", response_model=WhatIfResponse)
 def whatif(session_id: str, req: WhatIfRequest) -> WhatIfResponse:
-    """Re-run the agent with one tool output overridden, then compare trajectories."""
+    """Re-run the agent with one correction injected (tool output OR system prompt)."""
     import groq
 
     from flight_recorder.core.whatif import run_whatif
 
     try:
-        result = run_whatif(session_id, req.tool_name, req.new_output, store=storage)
+        result = run_whatif(
+            session_id,
+            req.tool_name,
+            req.new_output,
+            system_prompt=req.system_prompt,
+            store=storage,
+        )
     except KeyError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown session: {session_id}")
+    except ValueError as exc:  # neither a tool nor a prompt override was provided
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     except groq.RateLimitError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"LLM rate limit: {exc}")
     except RuntimeError as exc:
@@ -138,4 +232,5 @@ def whatif(session_id: str, req: WhatIfRequest) -> WhatIfResponse:
         original=result.original,
         whatif=result.whatif,
         overridden_tool=result.overridden_tool,
+        override_kind=result.override_kind,
     )
